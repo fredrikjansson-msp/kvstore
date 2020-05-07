@@ -28,6 +28,44 @@ func (a *App) Initialize() {
 	}
 	log.Printf("Enviroment: %s", env)
 
+	configuration := initConfig()
+
+	cacheClient := initCache(configuration)
+
+	r := initRouting(cacheClient)
+
+	a.Config = configuration
+	a.Router = r
+}
+
+func initRouting(cacheClient bigcache.KVStore) *mux.Router {
+	handler := handlers.StoreHandler{
+		Store: cacheClient,
+	}
+	r := mux.NewRouter()
+	r.HandleFunc("/{key}", handler.Get).Methods(http.MethodGet)
+	r.HandleFunc("/{key}", handler.Post).Methods(http.MethodPost).HeadersRegexp("Content-Type", "text/plain;charset=utf-8")
+	r.HandleFunc("/", handler.NotImplemented)
+	return r
+}
+
+func initCache(configuration c.Configurations) bigcache.KVStore {
+	config := bigcache.Config{
+		Ttl: time.Duration(configuration.Cache.TTLMinutes) * time.Minute,
+	}
+
+	cacheClient, err := bigcache.New(config)
+
+	if err != nil {
+		log.Println("Failed to initialize cache...")
+		log.Fatal(err)
+	}
+
+	log.Printf("Cache initialized with TTL %d minutes", configuration.Cache.TTLMinutes)
+	return cacheClient
+}
+
+func initConfig() c.Configurations {
 	viper.SetConfigName("config.development")
 	viper.AddConfigPath("./config")
 	viper.AutomaticEnv()
@@ -41,30 +79,7 @@ func (a *App) Initialize() {
 	if err != nil {
 		log.Fatalf("Unable to read config into struct, %v", err)
 	}
-
-	config := bigcache.Config{
-		Ttl: time.Duration(configuration.Cache.TTLMinutes) * time.Minute,
-	}
-
-	cacheClient, err := bigcache.New(config)
-
-	if err != nil {
-		log.Println("Failed to initialize cache...")
-		log.Fatal(err)
-	}
-
-	log.Printf("Cache initialized with TTL %d minutes", configuration.Cache.TTLMinutes)
-
-	handler := handlers.StoreHandler{
-		Store: cacheClient,
-	}
-	r := mux.NewRouter()
-	r.HandleFunc("/{key}", handler.Get).Methods(http.MethodGet)
-	r.HandleFunc("/{key}", handler.Post).Methods(http.MethodPost).HeadersRegexp("Content-Type", "text/plain;charset=utf-8")
-	r.HandleFunc("/", handler.NotImplemented)
-
-	a.Config = configuration
-	a.Router = r
+	return configuration
 }
 
 func (a *App) Run() {
